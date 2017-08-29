@@ -1,0 +1,71 @@
+#! /usr/bin/ruby
+
+DEFAULT_FPS   = 8
+DEFAULT_SCALE = 1280
+MAX_FPS       = 60
+PALETTE_TEMP  = '_palette.png'
+
+USAGE_BANNER  = <<DOC
+  Usage: jif <movie> [fps] [scale] [outfile]
+
+    fps: Frame rate <= #{MAX_FPS} (default: #{DEFAULT_FPS})
+  scale: Width of the resulting gif > #{MAX_FPS} (default: #{DEFAULT_SCALE})
+outfile: Path to the output gif (default: <movie>.gif)
+DOC
+
+def explode(reason: nil)
+  puts reason if reason
+  puts
+  puts USAGE_BANNER
+  exit 1
+end
+
+def remove_extension(path)
+  basename = File.basename(path, File.extname(path))
+  dirname = File.dirname(path)
+  File.join(dirname, basename)
+end
+
+def run_command(args)
+  puts "\n#{args.join(' ')}\n\n"
+  system(*args)
+end
+
+def main
+  numeric_opts, file_names = ARGV.partition { |arg| arg =~ /^\d+$/ }
+
+  # Parse numeric opts
+  numeric_opts = numeric_opts.map(&:to_i)
+  fps   = numeric_opts.select { |o| o <= MAX_FPS }.first || DEFAULT_FPS
+  scale = numeric_opts.select { |o| o > MAX_FPS }.first || DEFAULT_SCALE
+
+  # Parse file names
+  explode(reason: 'Missing argument: you need a <movie>, duder!') if file_names.size == 0
+  movie_in, movie_out = file_names
+  movie_out = remove_extension(movie_in) + '.gif' if movie_out.nil?
+
+  # Produce the palette
+  run_command(%W(
+    ffmpeg -y -i #{movie_in}
+    -vf fps=#{fps},scale=#{scale}:-1:flags=lanczos,palettegen
+    #{PALETTE_TEMP}
+  ))
+
+  # Encode
+  run_command(%W(
+    ffmpeg -y -i #{movie_in}
+    -i #{PALETTE_TEMP}
+    -filter_complex fps=#{fps},scale=#{scale}:-1:flags=lanczos[x];[x][1:v]paletteuse
+    #{movie_out}
+  ))
+
+  # Clean up
+  run_command(%W(rm #{PALETTE_TEMP}))
+
+  # Display info and the gif
+  run_command(%W(du -h #{movie_out}))
+
+  run_command(%W(qlmanage -p #{movie_out}))
+end
+
+main
